@@ -29,7 +29,7 @@ fun MainApp() {
             val getStorageFlow = context.dataStore.getValueFlow(storagePathKey, String())
 
             val storagePathValue = getStorageFlow.first()
-            var storagePath = Path(storagePathValue)
+            var storagePath = Path(storagePathValue.toString())
 
             if (!storagePath.exists()) {
                 storagePath = Path(
@@ -40,7 +40,7 @@ fun MainApp() {
                 context.dataStore.edit { mutablePreferences ->
                     mutablePreferences[storagePathKey] = storagePath.pathString
                 }
-            } else storagePath = Path(storagePathValue)
+            } else storagePath = Path(storagePathValue.toString())
 
             AppPackageStorage.getInstance().setAppStoragePath(storagePath)
             AppDir.initBase(storagePath.pathString)

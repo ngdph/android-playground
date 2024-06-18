@@ -1,29 +1,33 @@
 package co.iostream.apps.android.io_private
 
-
 import android.Manifest
 import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.content.IntentFilter
+import android.net.wifi.ScanResult
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
-import androidx.activity.ComponentActivity
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Surface
-import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.datastore.core.DataStore
@@ -40,15 +44,9 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 import java.util.Locale
-import android.net.wifi.ScanResult
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.unit.dp
-
+import kotlin.math.abs
+import kotlin.math.log10
+import kotlin.math.pow
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = IOConfig.DATA_STORE_NAME)
 val LocalNavController = compositionLocalOf<NavHostController> {
@@ -56,7 +54,8 @@ val LocalNavController = compositionLocalOf<NavHostController> {
 }
 
 /**
- * Find the closest Activity in a given Context.
+
+Find the closest Activity in a given Context.
  */
 internal fun Context.findActivity(): Activity {
     var context = this
@@ -66,7 +65,6 @@ internal fun Context.findActivity(): Activity {
     }
     throw IllegalStateException("Permissions should be called in the context of an Activity")
 }
-
 fun <T> DataStore<Preferences>.getValueFlow(
     key: Preferences.Key<T>, defaultValue: T
 ): Flow<Any?> {
@@ -138,9 +136,16 @@ class MainActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(16.dp))
                         LazyColumn {
                             items(scanResults) { result ->
-                                val distance = calculateDistance(result.level)
+                                val distance = calculateDistance(
+                                    result.level.toDouble(),
+                                    result.frequency.toDouble()
+                                )
                                 Text(
-                                    text = "SSID: ${result.SSID}, BSSID: ${result.BSSID}, Signal Level: ${result.level}, Distance: ${"%,2f".format(distance)} meters ",
+                                    text = "SSID: ${result.SSID}, BSSID: ${result.BSSID}, Signal Level: ${result.level}, Distance: ${
+                                        "%.2f".format(
+                                            distance
+                                        )
+                                    } meters",
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
@@ -161,8 +166,13 @@ class MainActivity : ComponentActivity() {
         wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 1)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                1
+            )
         } else {
             startWifiScan()
         }
@@ -185,7 +195,8 @@ class MainActivity : ComponentActivity() {
     private fun startWifiScan() {
         wifiScanReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                val success = intent?.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false) ?: false
+                val success =
+                    intent?.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false) ?: false
                 if (success) {
                     scanSuccess()
                 } else {
@@ -209,7 +220,8 @@ class MainActivity : ComponentActivity() {
         if (ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED) {
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
             scanResults = wifiManager.scanResults
             scanStatus = "Scan Success"
             Toast.makeText(this, "Scan Success", Toast.LENGTH_SHORT).show()
@@ -220,7 +232,8 @@ class MainActivity : ComponentActivity() {
         if (ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED) {
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
             scanResults = wifiManager.scanResults
             scanStatus = "Scan Failed"
             Toast.makeText(this, "Scan Failure", Toast.LENGTH_SHORT).show()
@@ -246,7 +259,9 @@ class MainActivity : ComponentActivity() {
 
         super.attachBaseContext(newBase.createConfigurationContext(configuration))
     }
-    private fun calculateDistance(rssi: Int, rssi0: Int = -40, n: Double = 2.0): Double {
-        return Math.pow(10.0, (rssi0 - rssi) / (10 * n))
+
+    fun calculateDistance(signalLevelInDb: Double, freqInMHz: Double): Double {
+        val exp = (27.55 - (20 * log10(freqInMHz)) + abs(signalLevelInDb)) / 20.0
+        return 10.0.pow(exp)
     }
 }
