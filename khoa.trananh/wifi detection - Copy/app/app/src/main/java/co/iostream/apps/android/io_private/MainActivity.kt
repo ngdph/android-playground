@@ -2,11 +2,9 @@ package co.iostream.apps.android.io_private
 
 import android.Manifest
 import android.app.Activity
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.ContextWrapper
-import android.content.Intent
-import android.content.IntentFilter
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.content.*
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.wifi.ScanResult
@@ -53,10 +51,6 @@ val LocalNavController = compositionLocalOf<NavHostController> {
     error("No LocalNavController provided")
 }
 
-/**
-
-Find the closest Activity in a given Context.
- */
 internal fun Context.findActivity(): Activity {
     var context = this
     while (context is ContextWrapper) {
@@ -86,8 +80,13 @@ class MainActivity : ComponentActivity() {
     private var scanResults by mutableStateOf<List<ScanResult>>(emptyList())
     private var scanStatus by mutableStateOf("")
 
+    private lateinit var bluetoothAdapter: BluetoothAdapter
+    private lateinit var bluetoothScanReceiver: BroadcastReceiver
+    private var bluetoothDevices by mutableStateOf<List<BluetoothDevice>>(emptyList())
+    private var bluetoothScanStatus by mutableStateOf("")
+
     private val startForResult =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 if (!Environment.isExternalStorageManager()) {
                     finishAndRemoveTask()
@@ -98,6 +97,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Initialize Bluetooth
+        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+        if (bluetoothAdapter == null) {
+            Toast.makeText(this, "Bluetooth is not supported on this device", Toast.LENGTH_SHORT).show()
+            finish() // Exit the activity if Bluetooth is not supported
+        }
+
+        // Request storage permission for devices running Android R and above
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!Environment.isExternalStorageManager()) {
                 val getPermissionIntent = Intent()
@@ -105,20 +112,56 @@ class MainActivity : ComponentActivity() {
                 startForResult.launch(getPermissionIntent)
             }
         } else {
+            // Request storage permission for devices below Android R
             val storageRequestCode = 3655
-
             if (ContextCompat.checkSelfPermission(
-                    this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+                    this, Manifest.permission.WRITE_EXTERNAL_STORAGE
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
                 ActivityCompat.requestPermissions(
                     this,
-                    arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                    arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
                     storageRequestCode
                 )
             }
         }
 
+        // Initialize WiFiManager
+        wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+
+        // Initialize BluetoothManager and start Bluetooth scan if enabled
+        if (bluetoothAdapter.isEnabled) {
+            startBluetoothScan()
+        } else {
+            val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+            startForResult.launch(enableBtIntent)
+        }
+
+        // Request WiFi and Bluetooth permissions if not granted
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                REQUEST_WIFI_PERMISSION
+            )
+        } else {
+            startWifiScan()
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.BLUETOOTH_SCAN),
+                REQUEST_BLUETOOTH_PERMISSION
+            )
+        } else {
+            startBluetoothScan()
+        }
+
+        // Set content using Compose
         enableEdgeToEdge()
         setContent {
             IOTheme {
@@ -156,26 +199,13 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Initialize MobileAds and configure test device ids
         MobileAds.initialize(this) {}
         val testDeviceIds = listOf(
             "F9F813CC38E15FF9383417B304B4D3F5",
         )
         val configuration = RequestConfiguration.Builder().setTestDeviceIds(testDeviceIds).build()
         MobileAds.setRequestConfiguration(configuration)
-
-        wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                1
-            )
-        } else {
-            startWifiScan()
-        }
     }
 
     override fun onRequestPermissionsResult(
@@ -184,11 +214,23 @@ class MainActivity : ComponentActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1 && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            startWifiScan()
-        } else {
-            Toast.makeText(this, "Permission denied", Toast.LENGTH_SHORT).show()
-            scanStatus = "Permission denied"
+        when (requestCode) {
+            REQUEST_WIFI_PERMISSION -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    startWifiScan()
+                } else {
+                    Toast.makeText(this, "WiFi permission denied", Toast.LENGTH_SHORT).show()
+                    scanStatus = "WiFi permission denied"
+                }
+            }
+            REQUEST_BLUETOOTH_PERMISSION -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    startBluetoothScan()
+                } else {
+                    Toast.makeText(this, "Bluetooth permission denied", Toast.LENGTH_SHORT).show()
+                    bluetoothScanStatus = "Bluetooth permission denied"
+                }
+            }
         }
     }
 
@@ -212,7 +254,7 @@ class MainActivity : ComponentActivity() {
         if (!success) {
             scanFailure()
         } else {
-            scanStatus = "Scanning..."
+            scanStatus = "Scanning WiFi..."
         }
     }
 
@@ -234,15 +276,52 @@ class MainActivity : ComponentActivity() {
                 Manifest.permission.ACCESS_FINE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            scanResults = wifiManager.scanResults
+            scanResults = emptyList() // Clear previous results
             scanStatus = "Scan Failed"
             Toast.makeText(this, "Scan Failure", Toast.LENGTH_SHORT).show()
         }
     }
+    private fun startBluetoothScan() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.BLUETOOTH_SCAN),
+                REQUEST_BLUETOOTH_PERMISSION
+            )
+        } else {
+            bluetoothScanReceiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    when (intent?.action) {
+                        BluetoothDevice.ACTION_FOUND -> {
+                            val device =
+                                intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                            device?.let {
+                                bluetoothDevices = bluetoothDevices + it
+                            }
+                        }
+                    }
+                }
+            }
+            val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
+            registerReceiver(bluetoothScanReceiver, filter)
+
+            val success = bluetoothAdapter.startDiscovery()
+            if (!success) {
+                bluetoothScanStatus = "Bluetooth Scan Failed"
+            } else {
+                bluetoothScanStatus = "Scanning Bluetooth..."
+            }
+        }
+    }
+
 
     override fun onDestroy() {
         super.onDestroy()
+        // Unregister receivers to avoid memory leaks
         unregisterReceiver(wifiScanReceiver)
+        unregisterReceiver(bluetoothScanReceiver)
     }
 
     override fun attachBaseContext(newBase: Context) {
@@ -263,5 +342,10 @@ class MainActivity : ComponentActivity() {
     fun calculateDistance(signalLevelInDb: Double, freqInMHz: Double): Double {
         val exp = (27.55 - (20 * log10(freqInMHz)) + abs(signalLevelInDb)) / 20.0
         return 10.0.pow(exp)
+    }
+
+    companion object {
+        private const val REQUEST_WIFI_PERMISSION = 1
+        private const val REQUEST_BLUETOOTH_PERMISSION = 2
     }
 }
