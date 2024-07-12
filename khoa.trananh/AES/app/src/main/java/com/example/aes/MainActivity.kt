@@ -307,70 +307,91 @@ class MainActivity : ComponentActivity() {
                                     if (!outputFile.exists()) {
                                         outputFile.createNewFile()
                                     }
-                                    val fos = FileOutputStream(outputFile)
-
-                                    val buffer = ByteArray(65016)
 
                                     val fis = FileInputStream(inputFilePath.toFile())
 
-                                    try {
-                                        while (true) {
+                                    val framePackPosition = mutableListOf<FilePack>()
+                                    val buffer = ByteArray(4)
 
-                                            val bytesRead = fis.read(buffer, 0, 4)
-                                            if (bytesRead != 4) break
+                                    // Read the entire file to determine frame pack positions
+                                    while (true) {
+                                        val bytesRead = fis.read(buffer)
+                                        if (bytesRead != 4) break
 
-                                            val frameSize = ByteBuffer.wrap(buffer, 0, 4).int
+                                        val frameSize = ByteBuffer.wrap(buffer).int
+                                        if (frameSize <= 0) break
 
-                                            if (frameSize <= 0 || frameSize > buffer.size - 4) {
-                                                Log.e("DecryptError", "Frame size $frameSize is invalid or too large")
-                                                break
-                                            }
+                                        framePackPosition.add(FilePack(fis.channel.position().toInt(), frameSize, false, false))
+                                        fis.skip(frameSize.toLong())
+                                    }
+                                    fis.close()
 
-                                            val totalBytesRead = fis.read(buffer, 4, frameSize)
-                                            if (totalBytesRead != frameSize) break
+                                    val reentrantLock = ReentrantLock()
+                                    fun findUndoneFrame(): Pair<Int, FilePack?> {
+                                        var index = -1
+                                        var framePack: FilePack? = null
 
-                                            val packData = buffer.copyOfRange(4, 4 + frameSize)
-
-                                            val decryptedData: ByteArray? = try {
-                                                CryptographyUtils.decrypt(packData, password, salt, iteration, keyLength)
-                                            } catch (e: BadPaddingException) {
-                                                Log.e("DecryptError", "Decryption failed: ${e.message}")
-                                                e.printStackTrace()
-                                                null
-                                            } catch (e: IllegalBlockSizeException) {
-                                                Log.e("DecryptError", "Decryption failed due to incorrect block size: ${e.message}")
-                                                e.printStackTrace()
-                                                null
-                                            } catch (e: GeneralSecurityException) {
-                                                Log.e("DecryptError", "Decryption failed due to general security issue: ${e.message}")
-                                                e.printStackTrace()
-                                                null
-                                            }
-
-
-                                            if (decryptedData != null) {
-
-                                                fos.write(decryptedData)
-                                                fos.flush()
-                                                Log.d("DecryptSuccess", "Decrypted data written to $outputFilePath")
-                                                printHexView(decryptedData)
-                                            } else {
-                                                Log.e("DecryptError", "Decrypted data is null, cannot write to file")
+                                        reentrantLock.withLock {
+                                            index = framePackPosition.indexOfFirst { !it.completed && !it.isTaken }
+                                            if (index != -1) {
+                                                framePack = framePackPosition[index]
+                                                framePackPosition[index].isTaken = true
                                             }
                                         }
-                                    } finally {
-                                        fis.close()
-                                        fos.close()
+
+                                        return Pair(index, framePack)
                                     }
+
+                                    val deferredResults = (0 until Runtime.getRuntime().availableProcessors()).map {
+                                        GlobalScope.async {
+                                            do {
+                                                val pair = findUndoneFrame()
+                                                if (pair.first == -1) break
+
+                                                val pack = pair.second ?: break
+                                                val frameData = ByteArray(pack.len + 4)
+
+                                                val fis = FileInputStream(inputFilePath.toFile())
+                                                fis.channel.position(pack.off.toLong() - 4)
+                                                fis.read(frameData)
+                                                fis.close()
+
+                                                val frameSize = ByteBuffer.wrap(frameData, 0, 4).int
+                                                val packData = frameData.copyOfRange(4, 4 + frameSize)
+
+                                                val decryptedData: ByteArray? = try {
+                                                    CryptographyUtils.decrypt(packData, password, salt, iteration, keyLength)
+                                                } catch (e: Exception) {
+                                                    Log.e("DecryptError", "Decryption failed: ${e.message}")
+                                                    e.printStackTrace()
+                                                    null
+                                                }
+
+                                                if (decryptedData != null) {
+                                                    val fos = FileOutputStream(outputFile, true)
+                                                    fos.write(decryptedData)
+                                                    fos.flush()
+                                                    fos.close()
+                                                    Log.d("DecryptSuccess", "Pack ${pair.first} decrypted with size ${decryptedData.size}")
+                                                }
+
+                                                reentrantLock.withLock {
+                                                    framePackPosition[pair.first].completed = true
+                                                }
+                                            } while (true)
+                                        }
+                                    }
+                                    deferredResults.awaitAll()
+
                                     val outputFileSize = outputFile.length()
                                     Log.d("DevTag", "Size of decrypted file: $outputFileSize bytes")
                                     Log.d("DevTag", "Final decrypted file created at $outputFilePath")
-
                                 }
                             }
                         }) {
-                            Text(text = "Decrypt")
+                            Text(text = "Decrypt Parallel")
                         }
+
 
                     }
                 }
