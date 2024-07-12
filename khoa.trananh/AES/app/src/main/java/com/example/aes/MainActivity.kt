@@ -265,12 +265,10 @@ class MainActivity : ComponentActivity() {
                                 val fos = FileOutputStream(outputFile)
 
                                 val sortedPacks = filePackPosition.sortedBy { it.off }
-                                var count = 0
                                 sortedPacks.forEach { pack ->
                                     val packFilePath = "/storage/emulated/0/Aaa/${filePackPosition.indexOf(pack)}"
                                     val packFile = File(packFilePath)
                                     if (packFile.exists()) {
-                                        count++
                                         val packData = packFile.readBytes()
                                         val packSize = packData.size
 
@@ -279,8 +277,6 @@ class MainActivity : ComponentActivity() {
                                         frameBuffer.put(packData)
 
                                         fos.write(frameBuffer.array())
-                                        Log.e("DevTag", "count : $count")
-                                        Log.e("DevTag", "count : $count")
                                     } else {
                                         Log.e("DevTag", "File not found: $packFilePath")
                                     }
