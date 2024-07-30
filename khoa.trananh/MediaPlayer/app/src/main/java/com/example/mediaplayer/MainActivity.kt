@@ -109,23 +109,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
 @Composable
 fun VideoPlayerScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    var videoUri by remember { mutableStateOf<Uri?>(null) }
-    val pickVideoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
-        onResult = { uri: Uri? ->
-            videoUri = uri
+    var videoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    val pickVideosLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents(),
+        onResult = { uris: List<Uri> ->
+            videoUris = uris
         }
     )
 
-    if (videoUri == null) {
+    if (videoUris.isEmpty()) {
         Button(
-            onClick = { pickVideoLauncher.launch("video/*") },
+            onClick = { pickVideosLauncher.launch("video/*") },
             modifier = modifier
         ) {
-            Text("Pick a video")
+            Text("Pick videos")
         }
     } else {
         AndroidView(
@@ -146,7 +147,10 @@ fun VideoPlayerScreen(modifier: Modifier = Modifier) {
                         }
                     })
                 }.apply {
-                    setMediaItem(MediaItem.fromUri(videoUri!!))
+                    // Add all video URIs to the playlist
+                    videoUris.forEach { uri ->
+                        addMediaItem(MediaItem.fromUri(uri))
+                    }
                     prepare()
                     playWhenReady = true
                 }.let { player ->
