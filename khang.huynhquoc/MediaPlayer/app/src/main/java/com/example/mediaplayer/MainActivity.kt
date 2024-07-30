@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -25,8 +26,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
@@ -80,7 +84,6 @@ class MainActivity : ComponentActivity() {
 
     fun checkStoragePermissions(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            //Android is 11 (R) or above
             return Environment.isExternalStorageManager()
         } else {
             //Below android 11
@@ -142,7 +145,8 @@ fun VideoPlayer(folderPath: String) {
     val context = LocalContext.current
     val videoUris = remember { mutableStateListOf<Uri>() }
 
-    // Quét thư mục vàtìm các file .mp4
+    var showList by remember { mutableStateOf(false) }
+
     LaunchedEffect(folderPath) {
         val folder = File(folderPath)
         if (folder.exists() && folder.isDirectory) {
@@ -161,7 +165,6 @@ fun VideoPlayer(folderPath: String) {
         ExoPlayer.Builder(context).build()
     }
 
-    // Tạo playlist và phát
     LaunchedEffect(videoUris) {
         val mediaItems = videoUris.map { MediaItem.fromUri(it) }
         exoPlayer.setMediaItems(mediaItems)
@@ -169,7 +172,6 @@ fun VideoPlayer(folderPath: String) {
         exoPlayer.playWhenReady = true
     }
 
-    // Giải phóng ExoPlayer khi Composable bị hủy
     DisposableEffect(
         AndroidView(factory = {
             PlayerView(context).apply {
