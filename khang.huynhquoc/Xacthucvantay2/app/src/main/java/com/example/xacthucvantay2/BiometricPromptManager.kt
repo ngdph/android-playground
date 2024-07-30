@@ -18,7 +18,8 @@ class BiometricPromptManager(
 
     fun showBiometricPrompt(
         title: String,
-        description: String
+        description: String,
+        //Biometric_result : BiometricPromptManager.BiometricResult?
     ) {
         val manager = BiometricManager.from(activity)
         val authenticators = if(Build.VERSION.SDK_INT >= 30) {
@@ -72,6 +73,8 @@ class BiometricPromptManager(
         prompt.authenticate(promptInfo.build())
     }
 
+
+
     sealed interface BiometricResult {
         data object HardwareUnavailable: BiometricResult
         data object FeatureUnavailable: BiometricResult
@@ -81,3 +84,4 @@ class BiometricPromptManager(
         data object AuthenticationNotSet: BiometricResult
     }
 }
+

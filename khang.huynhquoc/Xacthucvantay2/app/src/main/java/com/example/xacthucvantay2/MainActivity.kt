@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.navigation.compose.rememberNavController
 
 import com.example.xacthucvantay2.ui.theme.Xacthucvantay2Theme
 import com.plcoding.biometricauth.BiometricPromptManager
@@ -36,11 +37,12 @@ class MainActivity :  AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             Xacthucvantay2Theme {
-
+                val navController = rememberNavController()
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color= Color.White
@@ -76,11 +78,13 @@ class MainActivity :  AppCompatActivity() {
                         Button(onClick = {
                             promptManager.showBiometricPrompt(
                                 title = "XÁC THỰC",
-                                description = ""
+                                description = "",
+                                //Biometric_result = biometricResult
                             )
                         }) {
                             Text(text = "Xác thực")
                         }
+
                         biometricResult?.let { result ->
                             Text(
                                 text = when(result) {
@@ -114,11 +118,5 @@ class MainActivity :  AppCompatActivity() {
     }
 }
 
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
+
 
